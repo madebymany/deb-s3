@@ -290,6 +290,11 @@ class Deb::S3::CLI < Thor
     :desc     => "Whether to preserve other versions of a package " +
     "in the repository when uploading one."
 
+  option :cache_control,
+  :type     => :string,
+  :aliases  => "-C",
+  :desc     => "Add cache-control headers to S3 objects"
+
   def copy(package_name, to_codename, to_component)
     if package_name.nil?
       error "You must specify a package name."
@@ -481,15 +486,14 @@ class Deb::S3::CLI < Thor
     access_key_id     = options[:access_key_id]
     secret_access_key = options[:secret_access_key]
 
-    if access_key_id.nil? ^ secret_access_key.nil?
-      error("If you specify one of --access-key-id or --secret-access-key, you must specify the other.")
+    if access_key_id.nil? && secret_access_key.nil?
+      AWS::Core::CredentialProviders::EC2Provider.new
+    else
+      static_credentials = {}
+      static_credentials[:access_key_id]     = access_key_id     if access_key_id
+      static_credentials[:secret_access_key] = secret_access_key if secret_access_key
+      AWS::Core::CredentialProviders::DefaultProvider.new(static_credentials)
     end
-
-    static_credentials = {}
-    static_credentials[:access_key_id]     = access_key_id     if access_key_id
-    static_credentials[:secret_access_key] = secret_access_key if secret_access_key
-
-    AWS::Core::CredentialProviders::DefaultProvider.new(static_credentials)
   end
 
   def configure_s3_client
@@ -500,6 +504,7 @@ class Deb::S3::CLI < Thor
       :proxy_uri   => options[:proxy_uri],
       :use_ssl     => options[:use_ssl]
     }
+
     settings.merge!(provider.credentials)
 
     Deb::S3::Utils.s3          = AWS::S3.new(settings)
