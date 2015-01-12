@@ -211,7 +211,7 @@ class Deb::S3::CLI < Thor
     archs &= [options[:arch]] if options[:arch] && options[:arch] != "all"
     widths = [0, 0]
     rows = archs.map { |arch|
-      manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch)
+      manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch, nil)
       manifest.packages.map do |package|
         if options[:long]
           package.generate
@@ -250,7 +250,7 @@ class Deb::S3::CLI < Thor
     configure_s3_client
 
     # retrieve the existing manifests
-    manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch)
+    manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch, nil)
     package = manifest.packages.detect { |p|
       p.name == package_name && p.full_version == version
     }
@@ -288,6 +288,11 @@ class Deb::S3::CLI < Thor
     :desc     => "Whether to preserve other versions of a package " +
     "in the repository when uploading one."
 
+  option :cache_control,
+  :type     => :string,
+  :aliases  => "-C",
+  :desc     => "Add cache-control headers to S3 objects"
+
   def copy(package_name, to_codename, to_component)
     if package_name.nil?
       error "You must specify a package name."
@@ -316,9 +321,9 @@ class Deb::S3::CLI < Thor
     # retrieve the existing manifests
     log "Retrieving existing manifests"
     from_manifest = Deb::S3::Manifest.retrieve(options[:codename],
-                                               component, arch)
-    to_release = Deb::S3::Release.retrieve(to_codename)
-    to_manifest = Deb::S3::Manifest.retrieve(to_codename, to_component, arch)
+                                               component, arch, nil)
+    to_release = Deb::S3::Release.retrieve(to_codename, nil, options[:cache_control])
+    to_manifest = Deb::S3::Manifest.retrieve(to_codename, to_component, arch, options[:cache_control])
     packages = from_manifest.packages.select { |p|
       p.name == package_name &&
         (versions.nil? || versions.include?(p.full_version))
@@ -377,7 +382,7 @@ class Deb::S3::CLI < Thor
     # retrieve the existing manifests
     log("Retrieving existing manifests")
     release  = Deb::S3::Release.retrieve(options[:codename], options[:origin])
-    manifest = Deb::S3::Manifest.retrieve(options[:codename], component, options[:arch])
+    manifest = Deb::S3::Manifest.retrieve(options[:codename], component, options[:arch], nil)
 
     deleted = manifest.delete_package(package, versions)
     if deleted.length == 0
@@ -417,7 +422,7 @@ class Deb::S3::CLI < Thor
 
     release.architectures.each do |arch|
       log("Checking for missing packages in: #{options[:codename]}/#{options[:component]} #{arch}")
-      manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch)
+      manifest = Deb::S3::Manifest.retrieve(options[:codename], component, arch, nil)
       missing_packages = []
 
       manifest.packages.each do |p|
@@ -476,15 +481,14 @@ class Deb::S3::CLI < Thor
     access_key_id     = options[:access_key_id]
     secret_access_key = options[:secret_access_key]
 
-    if access_key_id.nil? ^ secret_access_key.nil?
-      error("If you specify one of --access-key-id or --secret-access-key, you must specify the other.")
+    if access_key_id.nil? and secret_access_key.nil?
+      AWS::Core::CredentialProviders::EC2Provider.new
+    else
+      static_credentials = {}
+      static_credentials[:access_key_id]     = access_key_id     if access_key_id
+      static_credentials[:secret_access_key] = secret_access_key if secret_access_key
+      AWS::Core::CredentialProviders::DefaultProvider.new(static_credentials)
     end
-
-    static_credentials = {}
-    static_credentials[:access_key_id]     = access_key_id     if access_key_id
-    static_credentials[:secret_access_key] = secret_access_key if secret_access_key
-
-    AWS::Core::CredentialProviders::DefaultProvider.new(static_credentials)
   end
 
   def configure_s3_client
@@ -495,6 +499,7 @@ class Deb::S3::CLI < Thor
       :proxy_uri   => options[:proxy_uri],
       :use_ssl     => options[:use_ssl]
     }
+
     settings.merge!(provider.credentials)
 
     Deb::S3::Utils.s3          = AWS::S3.new(settings)
