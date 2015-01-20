@@ -76,7 +76,7 @@ module Deb::S3::Utils
 
     options = {:acl => Deb::S3::Utils.access_policy, :content_type => content_type, :metadata => {'md5' => file_md5}}
     if !cache_control.nil?
-      options[:cache_control] = cache_control
+      options[:cache_control] = cache_control.delete! "\""
     end
 
     # specify if encryption is required
