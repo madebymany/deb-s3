@@ -486,7 +486,10 @@ class Deb::S3::CLI < Thor
     access_key_id     = options[:access_key_id]
     secret_access_key = options[:secret_access_key]
 
-    if access_key_id.nil? && secret_access_key.nil?
+    if access_key_id.nil? &&
+       secret_access_key.nil? &&
+       ENV['AWS_ACCESS_KEY_ID'].nil? &&
+       ENV['AWS_SECRET_ACCESS_KEY'].nil?
       AWS::Core::CredentialProviders::EC2Provider.new
     else
       static_credentials = {}
